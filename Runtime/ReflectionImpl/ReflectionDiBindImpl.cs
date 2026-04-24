@@ -2,24 +2,20 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using UJect.Exceptions;
 using UJect.Utilities;
-using UnityEngine.Scripting;
+using PreserveAttribute = UnityEngine.Scripting.PreserveAttribute;
 
 namespace UJect.Init
 {
     /// <summary>
     /// Helper class for running DiBind methods
     /// </summary>
-    public class ReflectionDiBindImpl
+    public static class ReflectionDiBindImpl
     {
         private static readonly Type diContainerType = typeof(DiContainer);
-        public ReflectionDiBindImpl()
-        {
-        }
 
         [Flags]
         public enum DiBindValidations : byte
@@ -36,6 +32,9 @@ namespace UJect.Init
             /// Check that the method being called is marked Preserve so code stripping doesn't remove it
             /// </summary>
             CheckForPreserveAttribute = 1<<1,
+            /// <summary>
+            /// Do all validations
+            /// </summary>
             All = 0xF
         }
         
@@ -47,7 +46,7 @@ namespace UJect.Init
         /// <exception cref="BindException">If a single Bind Exception is found during validation</exception>
         /// <exception cref="AggregateException">If multiple Bind Exceptions are found during validation</exception>
         [LibraryEntryPoint]
-        public ICollection<MethodInfo> CollectBindMethods(DiBindValidations bindValidations = DiBindValidations.All)
+        public static ICollection<MethodInfo> CollectBindMethods(DiBindValidations bindValidations = DiBindValidations.All)
         {
             var assemblies = AppDomain.CurrentDomain.GetAssemblies();
             var bindMethods = new List<MethodInfo>();
@@ -108,7 +107,7 @@ namespace UJect.Init
         /// If you used <see cref="CollectBindMethods"/> with validation, and are passing the results of that here, this can be <see cref="DiBindValidations.DoNothing"/>.
         /// </param>
         [LibraryEntryPoint]
-        public void RunBindMethods(ICollection<MethodInfo> diBindMethodInfos, DiContainer diContainer, DiBindValidations bindValidations = DiBindValidations.All)
+        public static void RunBindMethods(ICollection<MethodInfo> diBindMethodInfos, DiContainer diContainer, DiBindValidations bindValidations = DiBindValidations.All)
         {
             var diContainerArgArray = new object[] { diContainer };
             foreach (var bindMethodInfo in diBindMethodInfos)
@@ -123,7 +122,7 @@ namespace UJect.Init
         /// </summary>
         /// <param name="diContainer">Container to bind to</param>
         [LibraryEntryPoint]
-        public void CollectAndRunBindMethods(DiContainer diContainer)
+        public static void CollectAndRunBindMethods(DiContainer diContainer)
         {
             var bindMethods = CollectBindMethods(DiBindValidations.All);
             
@@ -139,9 +138,9 @@ namespace UJect.Init
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="method"/> is null</exception>
         /// <exception cref="BindException">Thrown if validation fails</exception>
         [LibraryEntryPoint]
-        public void ValidateDiBindMethod(MethodInfo method, DiBindValidations bindValidations) => ValidateDiBindMethodInternal(method, bindValidations);
+        public static void ValidateDiBindMethod(MethodInfo method, DiBindValidations bindValidations) => ValidateDiBindMethodInternal(method, bindValidations);
         
-        private void ValidateDiBindMethodInternal(MethodInfo method, DiBindValidations bindValidations)
+        private static void ValidateDiBindMethodInternal(MethodInfo method, DiBindValidations bindValidations)
         {
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
@@ -177,7 +176,7 @@ namespace UJect.Init
             }
         }
 
-        private bool DoesMethodOrDeclaringTypeHavePreserveAttribute(MethodInfo method)
+        private static bool DoesMethodOrDeclaringTypeHavePreserveAttribute(MethodInfo method)
         {
             var declaringType = method.DeclaringType;
             if (declaringType != null)
@@ -188,13 +187,13 @@ namespace UJect.Init
             return HasPreserveAttribute(method);
         }
         
-        private bool HasPreserveAttribute(MemberInfo? memberInfo)
+        private static bool HasPreserveAttribute(MemberInfo? memberInfo)
         {
             if (memberInfo == null) return false;
             
             // Try well known types first, it's quicker
-            if (memberInfo.GetCustomAttribute<UnityEngine.Scripting.PreserveAttribute>() != null) return true;
-            if (memberInfo.GetCustomAttribute<UJect.Utilities.PreserveAttribute>() != null) return true;
+            if (memberInfo.GetCustomAttribute<PreserveAttribute>() != null) return true;
+            if (memberInfo.GetCustomAttribute<Utilities.PreserveAttribute>() != null) return true;
             
             // Otherwise fall back to slower string comparison. Unity treats any attribute named "PreserveAttribute" as the same
             var methodAttributes = memberInfo.GetCustomAttributes(true);
