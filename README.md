@@ -2,6 +2,9 @@
 UJectInit is a helper library to initialize [UJect](https://github.com/oopsitsacoder/UJect).
 
 ## Installation
+
+First, install UJect. See [UJect]([https://github.com/oopsitsacoder/UJect](https://github.com/oopsitsacoder/UJect/blob/main/README.md)).
+
 Open the Unity package manager, choose "Install package from git URL", and input `https://github.com/oopsitsacoder/UJectInit.git`
 
 ## How to use
