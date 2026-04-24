@@ -37,6 +37,29 @@ namespace UJect.Init
             /// </summary>
             All = 0xF
         }
+
+        public readonly struct BindMethod<T> where T : DiBindAttribute
+        {
+            public readonly T Attribute;
+            public readonly MethodInfo MethodInfo;
+
+            public BindMethod(T attribute, MethodInfo methodInfo)
+            {
+                Attribute = attribute;
+                MethodInfo = methodInfo;
+            }
+        }
+
+        /// <summary>
+        /// Collect all possible Bind methods in the current AppDoman. This can be slow on large games, and another solution might be better.
+        /// </summary>
+        /// <param name="bindValidations">Which Di Bind methods to run against collected methods. Defaults to <see cref="DiBindValidations.All"/>.</param>
+        /// <returns>All valid DIBind method infos</returns>
+        /// <exception cref="BindException">If a single Bind Exception is found during validation</exception>
+        /// <exception cref="AggregateException">If multiple Bind Exceptions are found during validation</exception>
+        [LibraryEntryPoint]
+        public static IReadOnlyCollection<BindMethod<DiBindAttribute>> CollectBindMethods(DiBindValidations bindValidations = DiBindValidations.All)
+            => CollectBindMethods<DiBindAttribute>(bindValidations);
         
         /// <summary>
         /// Collect all possible Bind methods in the current AppDoman. This can be slow on large games, and another solution might be better.
@@ -46,10 +69,10 @@ namespace UJect.Init
         /// <exception cref="BindException">If a single Bind Exception is found during validation</exception>
         /// <exception cref="AggregateException">If multiple Bind Exceptions are found during validation</exception>
         [LibraryEntryPoint]
-        public static ICollection<MethodInfo> CollectBindMethods(DiBindValidations bindValidations = DiBindValidations.All)
+        public static IReadOnlyCollection<BindMethod<T>> CollectBindMethods<T>(DiBindValidations bindValidations = DiBindValidations.All) where T : DiBindAttribute
         {
             var assemblies = AppDomain.CurrentDomain.GetAssemblies();
-            var bindMethods = new List<MethodInfo>();
+            var bindMethods = new List<BindMethod<T>>();
 
             List<BindException>? bindExceptions = null;
 
@@ -63,7 +86,7 @@ namespace UJect.Init
                         var methods = assemType.GetMethods(BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
                         foreach (var method in methods.OrderByDescending(m => m.GetParameters().Length))
                         {
-                            var diBindAttribute = method.GetCustomAttribute<DiBindAttribute>();
+                            var diBindAttribute = method.GetCustomAttribute<T>();
                             if (diBindAttribute == null) continue; // Not a DI Bind attribute
 
                             if (bindValidations != DiBindValidations.DoNothing)
@@ -79,7 +102,7 @@ namespace UJect.Init
                                     continue;
                                 }
                             }
-                            bindMethods.Add(method);
+                            bindMethods.Add(new BindMethod<T>(diBindAttribute, method));
                         }
                     }
                 }
@@ -106,28 +129,45 @@ namespace UJect.Init
         /// Which Di Bind methods to run against each of the <paramref name="diBindMethodInfos"/>. Defaults to <see cref="DiBindValidations.All"/>.
         /// If you used <see cref="CollectBindMethods"/> with validation, and are passing the results of that here, this can be <see cref="DiBindValidations.DoNothing"/>.
         /// </param>
+        public static void RunBindMethods(IEnumerable<BindMethod<DiBindAttribute>> diBindMethodInfos, DiContainer diContainer, DiBindValidations bindValidations = DiBindValidations.All)
+            => RunBindMethods<DiBindAttribute>(diBindMethodInfos, diContainer, bindValidations);
+
+        /// <summary>
+        /// Execute all the method infos in <paramref name="diBindMethodInfos"/>
+        /// </summary>
+        /// <param name="diBindMethodInfos">Methods to execute</param>
+        /// <param name="diContainer">The container to bind to</param>
+        /// <param name="bindValidations">
+        /// Which Di Bind methods to run against each of the <paramref name="diBindMethodInfos"/>. Defaults to <see cref="DiBindValidations.All"/>.
+        /// If you used <see cref="CollectBindMethods{T}"/> with validation, and are passing the results of that here, this can be <see cref="DiBindValidations.DoNothing"/>.
+        /// </param>
         [LibraryEntryPoint]
-        public static void RunBindMethods(ICollection<MethodInfo> diBindMethodInfos, DiContainer diContainer, DiBindValidations bindValidations = DiBindValidations.All)
+        public static void RunBindMethods<T>(IEnumerable<BindMethod<T>> diBindMethodInfos, DiContainer diContainer, DiBindValidations bindValidations = DiBindValidations.All) where T:DiBindAttribute
         {
             var diContainerArgArray = new object[] { diContainer };
             foreach (var bindMethodInfo in diBindMethodInfos)
             {
-                if (bindValidations != DiBindValidations.DoNothing) ValidateDiBindMethod(bindMethodInfo, bindValidations);
-                bindMethodInfo.Invoke(null, diContainerArgArray);
+                if (bindValidations != DiBindValidations.DoNothing) ValidateDiBindMethod(bindMethodInfo.MethodInfo, bindValidations);
+                bindMethodInfo.MethodInfo.Invoke(null, diContainerArgArray);
             }
         }
+
+        /// <summary>
+        /// Shortcut for calling <see cref="CollectBindMethods"/> and <see cref="RunBindMethods"/> with <see cref="DiBindAttribute"/> in succession.
+        /// </summary>
+        /// <param name="diContainer">Container to bind to</param>
+        public static void CollectAndRunBindMethods(DiContainer diContainer) => CollectAndRunBindMethods<DiBindAttribute>(diContainer);
         
         /// <summary>
-        /// Shortcut for calling <see cref="CollectBindMethods"/> and <see cref="RunBindMethods"/> in succession.
+        /// Shortcut for calling <see cref="CollectBindMethods{T}"/> and <see cref="RunBindMethods{T}"/> in succession.
         /// </summary>
         /// <param name="diContainer">Container to bind to</param>
         [LibraryEntryPoint]
-        public static void CollectAndRunBindMethods(DiContainer diContainer)
+        public static void CollectAndRunBindMethods<T>(DiContainer diContainer) where T:DiBindAttribute
         {
-            var bindMethods = CollectBindMethods(DiBindValidations.All);
-            
+            var bindMethods = CollectBindMethods<T>(DiBindValidations.All);
             // We can skip validations here because we already did them during CollectBindMethods
-            RunBindMethods(bindMethods, diContainer, DiBindValidations.DoNothing); 
+            RunBindMethods<T>(bindMethods, diContainer, DiBindValidations.DoNothing); 
         }
 
         /// <summary>
