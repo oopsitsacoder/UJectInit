@@ -1,0 +1,13 @@
+{
+    "name": "UJectInit.Editor",
+    "references": ["UJect.Runtime", "UJectInit.Runtime"],
+    "includePlatforms": ["Editor"],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

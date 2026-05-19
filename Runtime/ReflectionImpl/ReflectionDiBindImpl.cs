@@ -1,55 +1,56 @@
 ﻿// Copyright (c) 2026 OopsItsACoder
-#nullable enable
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UJect.Exceptions;
+using UJect.Init.CommonImpl;
 using UJect.Utilities;
-using PreserveAttribute = UnityEngine.Scripting.PreserveAttribute;
 
-namespace UJect.Init
+namespace UJect.Init.Reflection
 {
     /// <summary>
-    /// Helper class for running DiBind methods
+    /// Helper class for running DiBind methods via standard C# reflection.
     /// </summary>
-    public static class ReflectionDiBindImpl
+    public class ReflectionDiBindImpl : IUJectInitImpl
     {
         private static readonly Type diContainerType = typeof(DiContainer);
+        [Preserve] public static readonly ReflectionDiBindImpl Instance = new();
+        
+        private bool hasCachedMethods = false;
+        private readonly Dictionary<Type, IBindMethodCollection> bindMethodCollectionsByAttributeType = new();
 
-        [Flags]
-        public enum DiBindValidations : byte
+        private void TryInit()
         {
-            /// <summary>
-            /// Do no validation for BindMethods. Normally you might use this in a build for performance reasons.
-            /// </summary>
-            DoNothing = 0,
-            /// <summary>
-            /// Check that the method signature is as expected
-            /// </summary>
-            CheckMethodSignature = 1<<0,
-            /// <summary>
-            /// Check that the method being called is marked Preserve so code stripping doesn't remove it
-            /// </summary>
-            CheckForPreserveAttribute = 1<<1,
-            /// <summary>
-            /// Do all validations
-            /// </summary>
-            All = 0xF
-        }
+            if (hasCachedMethods) return;
+            hasCachedMethods = true;
 
-        public readonly struct BindMethod<T> where T : DiBindAttribute
-        {
-            public readonly T Attribute;
-            public readonly MethodInfo MethodInfo;
+            bindMethodCollectionsByAttributeType.Clear();
 
-            public BindMethod(T attribute, MethodInfo methodInfo)
+            var bindMethods = CollectBindMethods(DiBindValidations.All);
+            foreach (var kvp in bindMethods)
             {
-                Attribute = attribute;
-                MethodInfo = methodInfo;
+                bindMethodCollectionsByAttributeType[kvp.Key] = new BindMethodCollection(kvp.Value);
             }
         }
 
+
+        public void RunBindMethods(DiContainer diContainer)
+        {
+            TryInit();
+            foreach (var kvp in bindMethodCollectionsByAttributeType)
+            {
+                kvp.Value.RunBindMethods(diContainer);
+            }
+        }
+
+        public IReadOnlyDictionary<Type, IBindMethodCollection> CollectBindMethodsByAttributeType()
+        {
+            TryInit();
+            return bindMethodCollectionsByAttributeType;
+        }
+
         /// <summary>
         /// Collect all possible Bind methods in the current AppDoman. This can be slow on large games, and another solution might be better.
         /// </summary>
@@ -58,9 +59,9 @@ namespace UJect.Init
         /// <exception cref="BindException">If a single Bind Exception is found during validation</exception>
         /// <exception cref="AggregateException">If multiple Bind Exceptions are found during validation</exception>
         [LibraryEntryPoint]
-        public static IReadOnlyCollection<BindMethod<DiBindAttribute>> CollectBindMethods(DiBindValidations bindValidations = DiBindValidations.All)
+        public static IReadOnlyDictionary<Type, IReadOnlyList<BindMethod<DiBindAttribute>>> CollectBindMethods(DiBindValidations bindValidations = DiBindValidations.All)
             => CollectBindMethods<DiBindAttribute>(bindValidations);
-        
+
         /// <summary>
         /// Collect all possible Bind methods in the current AppDoman. This can be slow on large games, and another solution might be better.
         /// </summary>
@@ -69,13 +70,15 @@ namespace UJect.Init
         /// <exception cref="BindException">If a single Bind Exception is found during validation</exception>
         /// <exception cref="AggregateException">If multiple Bind Exceptions are found during validation</exception>
         [LibraryEntryPoint]
-        public static IReadOnlyCollection<BindMethod<T>> CollectBindMethods<T>(DiBindValidations bindValidations = DiBindValidations.All) where T : DiBindAttribute
+        public static IReadOnlyDictionary<Type, IReadOnlyList<BindMethod<T>>> CollectBindMethods<T>(DiBindValidations bindValidations = DiBindValidations.All) where T : DiBindAttribute
         {
             var assemblies = AppDomain.CurrentDomain.GetAssemblies();
-            var bindMethods = new List<BindMethod<T>>();
 
+            var bindMethods = new Dictionary<Type, IReadOnlyList<BindMethod<T>>>()
+            {
+                { typeof(DiBindAttribute), new List<BindMethod<T>>() } // At least make sure default group is present
+            };
             List<BindException>? bindExceptions = null;
-
             foreach (var assembly in assemblies)
             {
                 try
@@ -102,7 +105,21 @@ namespace UJect.Init
                                     continue;
                                 }
                             }
-                            bindMethods.Add(new BindMethod<T>(diBindAttribute, method));
+
+                            var group = diBindAttribute.GetType();
+                            var bindMethod = new BindMethod<T>(diBindAttribute, method);
+                            List<BindMethod<T>> bindMethodList;
+                            if (!bindMethods.TryGetValue(group, out var readOnlyBindMethodList))
+                            {
+                                bindMethodList = new List<BindMethod<T>>();
+                                bindMethods[group] = bindMethodList;
+                            }
+                            else
+                            {
+                                bindMethodList = readOnlyBindMethodList as List<BindMethod<T>> ?? throw new InvalidOperationException();
+                            }
+
+                            bindMethodList.Add(bindMethod);
                         }
                     }
                 }
@@ -117,6 +134,7 @@ namespace UJect.Init
                 if (bindExceptions.Count == 1) throw bindExceptions[0];
                 if (bindExceptions.Count > 1) throw new AggregateException(bindExceptions);
             }
+
             return bindMethods;
         }
 
@@ -142,7 +160,7 @@ namespace UJect.Init
         /// If you used <see cref="CollectBindMethods{T}"/> with validation, and are passing the results of that here, this can be <see cref="DiBindValidations.DoNothing"/>.
         /// </param>
         [LibraryEntryPoint]
-        public static void RunBindMethods<T>(IEnumerable<BindMethod<T>> diBindMethodInfos, DiContainer diContainer, DiBindValidations bindValidations = DiBindValidations.All) where T:DiBindAttribute
+        public static void RunBindMethods<T>(IEnumerable<BindMethod<T>> diBindMethodInfos, DiContainer diContainer, DiBindValidations bindValidations = DiBindValidations.All) where T : DiBindAttribute
         {
             var diContainerArgArray = new object[] { diContainer };
             foreach (var bindMethodInfo in diBindMethodInfos)
@@ -157,17 +175,20 @@ namespace UJect.Init
         /// </summary>
         /// <param name="diContainer">Container to bind to</param>
         public static void CollectAndRunBindMethods(DiContainer diContainer) => CollectAndRunBindMethods<DiBindAttribute>(diContainer);
-        
+
         /// <summary>
         /// Shortcut for calling <see cref="CollectBindMethods{T}"/> and <see cref="RunBindMethods{T}"/> in succession.
         /// </summary>
         /// <param name="diContainer">Container to bind to</param>
         [LibraryEntryPoint]
-        public static void CollectAndRunBindMethods<T>(DiContainer diContainer) where T:DiBindAttribute
+        public static void CollectAndRunBindMethods<T>(DiContainer diContainer) where T : DiBindAttribute
         {
             var bindMethods = CollectBindMethods<T>(DiBindValidations.All);
-            // We can skip validations here because we already did them during CollectBindMethods
-            RunBindMethods<T>(bindMethods, diContainer, DiBindValidations.DoNothing); 
+            if (bindMethods.TryGetValue(typeof(T), out var groupBindMethods))
+            {
+                // We can skip validations here because we already did them during CollectBindMethods
+                RunBindMethods<T>(groupBindMethods, diContainer, DiBindValidations.DoNothing);
+            }
         }
 
         /// <summary>
@@ -179,7 +200,7 @@ namespace UJect.Init
         /// <exception cref="BindException">Thrown if validation fails</exception>
         [LibraryEntryPoint]
         public static void ValidateDiBindMethod(MethodInfo method, DiBindValidations bindValidations) => ValidateDiBindMethodInternal(method, bindValidations);
-        
+
         private static void ValidateDiBindMethodInternal(MethodInfo method, DiBindValidations bindValidations)
         {
             if (method == null)
@@ -206,7 +227,7 @@ namespace UJect.Init
                     throw new BindException($"DIBind method {method.Name} on type {method.DeclaringType?.FullName} has too many parameters. It should have a single {nameof(DiContainer)} parameter");
                 }
             }
-            
+
             // If we're checking for a PreserveAttribute
             if ((bindValidations & DiBindValidations.CheckForPreserveAttribute) == DiBindValidations.CheckForPreserveAttribute)
             {
@@ -224,25 +245,81 @@ namespace UJect.Init
                 var typeIsPreserved = HasPreserveAttribute(declaringType);
                 if (typeIsPreserved) return true;
             }
+
             return HasPreserveAttribute(method);
         }
-        
+
         private static bool HasPreserveAttribute(MemberInfo? memberInfo)
         {
             if (memberInfo == null) return false;
-            
+
             // Try well known types first, it's quicker
             if (memberInfo.GetCustomAttribute<PreserveAttribute>() != null) return true;
             if (memberInfo.GetCustomAttribute<Utilities.PreserveAttribute>() != null) return true;
-            
+
             // Otherwise fall back to slower string comparison. Unity treats any attribute named "PreserveAttribute" as the same
             var methodAttributes = memberInfo.GetCustomAttributes(true);
             foreach (var attribute in methodAttributes)
             {
                 if (string.Equals("PreserveAttribute", attribute.GetType().Name, StringComparison.Ordinal)) return true;
             }
-            return false;
 
+            return false;
+        }
+        
+        [Flags]
+        public enum DiBindValidations : byte
+        {
+            /// <summary>
+            /// Do no validation for BindMethods. Normally you might use this in a build for performance reasons.
+            /// </summary>
+            DoNothing = 0,
+
+            /// <summary>
+            /// Check that the method signature is as expected
+            /// </summary>
+            CheckMethodSignature = 1 << 0,
+
+            /// <summary>
+            /// Check that the method being called is marked Preserve so code stripping doesn't remove it
+            /// </summary>
+            CheckForPreserveAttribute = 1 << 1,
+
+            /// <summary>
+            /// Do all validations
+            /// </summary>
+            All = 0xF
+        }
+        
+        public class BindMethodCollection : IBindMethodCollection
+        {
+            private readonly IReadOnlyList<BindMethod<DiBindAttribute>> bindMethods;
+
+            public BindMethodCollection(IReadOnlyList<BindMethod<DiBindAttribute>> bindMethods)
+            {
+                this.bindMethods = bindMethods;
+            }
+
+            public void RunBindMethods(DiContainer diContainer)
+            {
+                var argsArray = new object[] { diContainer };
+                foreach (var bindMethod in bindMethods)
+                {
+                    bindMethod.MethodInfo.Invoke(null, argsArray);
+                }
+            }
+        }
+        
+        public readonly struct BindMethod<T> where T : DiBindAttribute
+        {
+            public readonly T Attribute;
+            public readonly MethodInfo MethodInfo;
+
+            public BindMethod(T attribute, MethodInfo methodInfo)
+            {
+                Attribute = attribute;
+                MethodInfo = methodInfo;
+            }
         }
     }
 }
