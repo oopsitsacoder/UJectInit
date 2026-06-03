@@ -129,6 +129,18 @@ namespace UJect.Init.Editor
 
         private void DrawImpl(IUJectInitImpl uJectInitImpl)
         {
+            if (uJectInitImpl == null)
+            {
+                EditorGUILayout.HelpBox("Null impl", MessageType.Error);
+                return;
+            }
+
+            if (!uJectInitImpl.IsReadyToCollect)
+            {
+                EditorGUILayout.HelpBox("Null impl", MessageType.Error);
+                return;
+            }
+            
             var bindMethodsByAttributeType = uJectInitImpl.CollectBindMethodsByAttributeType();
 
             using var _ = new EditorGUILayout.VerticalScope("box");

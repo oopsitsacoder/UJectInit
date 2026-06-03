@@ -18,8 +18,18 @@ namespace UJect.Init.Roslyn
     /// </summary>
     public class RoslynImpl : IUJectInitImpl
     {
-        [Preserve]
-        public static readonly RoslynImpl Instance = new();
+        public bool IsReadyToCollect
+        {
+            get
+            {
+#if UNITY_EDITOR
+                if (UnityEditor.EditorApplication.isCompiling) return false;
+#endif
+                return true;
+            }
+        }
+
+        [Preserve] public static readonly RoslynImpl Instance = new();
 
         private bool hasCachedMethods = false;
         private readonly List<ISourceGeneratedDiBindMethodCollection> cachedMethodCollections = new();
@@ -29,7 +39,7 @@ namespace UJect.Init.Roslyn
         {
             if (hasCachedMethods) return;
             hasCachedMethods = true;
-            
+
             cachedMethodCollections.Clear();
             bindMethodCollectionsByAttributeType.Clear();
 
@@ -41,8 +51,9 @@ namespace UJect.Init.Roslyn
                 Type methodCollectionType;
                 try
                 {
-                    methodCollectionType =  assembly.GetType("UJect.SourceGen.__DiBindMethodCollection");
-                } catch
+                    methodCollectionType = assembly.GetType("UJect.SourceGen.__DiBindMethodCollection");
+                }
+                catch
                 {
                     // Couldn't access this assembly
                     continue;
@@ -63,6 +74,7 @@ namespace UJect.Init.Roslyn
                 {
                     throw new InvalidOperationException($"Instance object does not implement interface {nameof(ISourceGeneratedDiBindMethodCollection)}");
                 }
+
                 cachedMethodCollections.Add(diBindMethodCollection);
                 foreach (var byAttribute in diBindMethodCollection.MethodLookup)
                 {
@@ -74,6 +86,7 @@ namespace UJect.Init.Roslyn
                         methodList = new List<Action<DiContainer>>();
                         methodListLookup[attributeType] = methodList;
                     }
+
                     methodList.Add(assemblyAction);
                 }
             }
@@ -83,7 +96,7 @@ namespace UJect.Init.Roslyn
                 bindMethodCollectionsByAttributeType[kvp.Key] = new ActionListBindMethodCollection(kvp.Value);
             }
         }
-        
+
         public void RunBindMethods(DiContainer diContainer)
         {
             TryInit();

@@ -4,9 +4,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using UJect.Exceptions;
 using UJect.Init.CommonImpl;
 using UJect.Utilities;
+using UnityEngine;
 
 namespace UJect.Init.Reflection
 {
@@ -20,6 +22,7 @@ namespace UJect.Init.Reflection
         
         private bool hasCachedMethods = false;
         private readonly Dictionary<Type, IBindMethodCollection> bindMethodCollectionsByAttributeType = new();
+        private bool isReadyToCollect;
 
         private void TryInit()
         {
@@ -42,6 +45,17 @@ namespace UJect.Init.Reflection
             foreach (var kvp in bindMethodCollectionsByAttributeType)
             {
                 kvp.Value.RunBindMethods(diContainer);
+            }
+        }
+
+        public bool IsReadyToCollect
+        {
+            get
+            {
+                #if UNITY_EDITOR
+                if (UnityEditor.EditorApplication.isCompiling) return false;
+                #endif
+                return true;
             }
         }
 
@@ -87,8 +101,30 @@ namespace UJect.Init.Reflection
                     foreach (var assemType in allTypesInAssembly)
                     {
                         var methods = assemType.GetMethods(BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
-                        foreach (var method in methods.OrderByDescending(m => m.GetParameters().Length))
+
+                        var sortedMethodList = new List<(MethodInfo method, int paramCount)>();
+                        foreach (var method in methods)
                         {
+                            try
+                            {
+                                var methodParams = method.GetParameters();
+                                sortedMethodList.Add((method, methodParams.Length));
+                            }
+                            catch (Exception ex)
+                            {
+                                // Continue
+                                Debug.LogException(ex);
+                                continue;
+                            }
+                            
+                        }
+                        
+                        // Sort by most parameters first
+                        sortedMethodList.Sort((m1, m2) => -m1.paramCount.CompareTo(m2.paramCount));
+                        
+                        foreach (var methodCountPair in sortedMethodList)
+                        {
+                            var method = methodCountPair.method;
                             var diBindAttribute = method.GetCustomAttribute<T>();
                             if (diBindAttribute == null) continue; // Not a DI Bind attribute
 

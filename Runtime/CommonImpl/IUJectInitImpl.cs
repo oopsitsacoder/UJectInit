@@ -17,6 +17,8 @@ namespace UJect.Init.CommonImpl
     
     public interface IUJectInitImpl : IBindMethodCollection
     {
+        bool IsReadyToCollect { get; }
+        
         /// <summary>
         /// Collect bind methods grouped by attribute type. If you're not using custom attribute types, you can use <see cref="IBindMethodCollection.RunBindMethods"/> directly.
         /// </summary>
