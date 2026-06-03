@@ -31,6 +31,9 @@ namespace UJect.Init.Editor
         private IUJectInitImpl? selectedImpl = null;
         private DiContainer? diContainer = null;
 
+        [NonSerialized]
+        private bool initialized = false;
+
         private void OnEnable()
         {
             initImplChoices.Clear();
@@ -129,15 +132,20 @@ namespace UJect.Init.Editor
 
         private void DrawImpl(IUJectInitImpl uJectInitImpl)
         {
-            if (uJectInitImpl == null)
+            if (!uJectInitImpl.IsReadyToCollect)
             {
-                EditorGUILayout.HelpBox("Null impl", MessageType.Error);
+                EditorGUILayout.HelpBox("Not yet ready", MessageType.Error);
                 return;
             }
 
-            if (!uJectInitImpl.IsReadyToCollect)
+            if (!initialized)
             {
-                EditorGUILayout.HelpBox("Null impl", MessageType.Error);
+                initialized |= GUILayout.Button("Initialize");
+            }
+
+            if (!initialized)
+            {
+                EditorGUILayout.HelpBox("Initialize to begin debugging.", MessageType.Info);
                 return;
             }
             
