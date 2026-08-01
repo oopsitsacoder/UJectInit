@@ -46,6 +46,7 @@ namespace UJect.Init.Editor
             selectedIndex = Mathf.Clamp(selectedIndex, 0, initImplChoiceLabels.Length);
             var newIndex = EditorGUILayout.Popup(selectedIndex, initImplChoiceLabels);
 
+            var implForceRefreshCache = false;
             if (newIndex != selectedIndex || implNeedsInit)
             {
                 implError = null;
@@ -73,6 +74,8 @@ namespace UJect.Init.Editor
                         selectedImpl = impl;
                     }
                 }
+
+                implForceRefreshCache = true;
             }
             
             TryDrawError("Implementation Error", ref implError);
@@ -81,7 +84,7 @@ namespace UJect.Init.Editor
 
             if (selectedImpl != null)
             {
-                DrawImpl(selectedImpl);
+                DrawImpl(selectedImpl, implForceRefreshCache);
             }
 
             if (diContainer != null)
@@ -130,7 +133,7 @@ namespace UJect.Init.Editor
         }
 
 
-        private void DrawImpl(IUJectInitImpl uJectInitImpl)
+        private void DrawImpl(IUJectInitImpl uJectInitImpl, bool implForceRefreshCache)
         {
             if (!uJectInitImpl.IsReadyToCollect)
             {
@@ -149,7 +152,7 @@ namespace UJect.Init.Editor
                 return;
             }
             
-            var bindMethodsByAttributeType = uJectInitImpl.CollectBindMethodsByAttributeType();
+            var bindMethodsByAttributeType = uJectInitImpl.CollectBindMethodsByAttributeType(implForceRefreshCache);
 
             using var _ = new EditorGUILayout.VerticalScope("box");
             EditorGUILayout.LabelField(uJectInitImpl.GetType().Name, EditorStyles.boldLabel);

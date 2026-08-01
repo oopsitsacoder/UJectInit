@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using UJect.Exceptions;
@@ -24,27 +25,32 @@ namespace UJect.Init.Reflection
         private readonly Dictionary<Type, IBindMethodCollection> bindMethodCollectionsByAttributeType = new();
         private bool isReadyToCollect;
 
-        private void TryInit()
+        private void TryInit(
+            bool forceRefreshCache = false,
+            IAssemblyFilter? assemblyFilter = null
+        )
         {
-            if (hasCachedMethods) return;
+            if (!forceRefreshCache && hasCachedMethods) return;
             hasCachedMethods = true;
 
             bindMethodCollectionsByAttributeType.Clear();
 
-            var bindMethods = CollectBindMethods(DiBindValidations.All);
+            var bindMethods = CollectBindMethods(DiBindValidations.All, assemblyFilter);
             foreach (var kvp in bindMethods)
             {
                 bindMethodCollectionsByAttributeType[kvp.Key] = new BindMethodCollection(kvp.Value);
             }
         }
 
-
-        public void RunBindMethods(DiContainer diContainer)
+        public void RunBindMethods(DiContainer diContainer) => RunBindMethods(diContainer, false, null);
+        
+        public void RunBindMethods(DiContainer diContainer, bool forceRefreshCache, IAssemblyFilter? assemblyFilter)
         {
-            TryInit();
+            TryInit(forceRefreshCache, assemblyFilter);
             foreach (var kvp in bindMethodCollectionsByAttributeType)
             {
                 kvp.Value.RunBindMethods(diContainer);
+
             }
         }
 
@@ -59,9 +65,12 @@ namespace UJect.Init.Reflection
             }
         }
 
-        public IReadOnlyDictionary<Type, IBindMethodCollection> CollectBindMethodsByAttributeType()
+        public IReadOnlyDictionary<Type, IBindMethodCollection> CollectBindMethodsByAttributeType(
+            bool forceRefreshCache = false,
+            IAssemblyFilter? assemblyFilter = null
+        )
         {
-            TryInit();
+            TryInit(forceRefreshCache);
             return bindMethodCollectionsByAttributeType;
         }
 
@@ -69,23 +78,29 @@ namespace UJect.Init.Reflection
         /// Collect all possible Bind methods in the current AppDoman. This can be slow on large games, and another solution might be better.
         /// </summary>
         /// <param name="bindValidations">Which Di Bind methods to run against collected methods. Defaults to <see cref="DiBindValidations.All"/>.</param>
+        /// <param name="assemblyFilter">Filter to limit which assemblies to run reflection on. If null, will use <see cref="DefaultAssemblyFilter"/></param>
         /// <returns>All valid DIBind method infos</returns>
         /// <exception cref="BindException">If a single Bind Exception is found during validation</exception>
         /// <exception cref="AggregateException">If multiple Bind Exceptions are found during validation</exception>
         [LibraryEntryPoint]
-        public static IReadOnlyDictionary<Type, IReadOnlyList<BindMethod<DiBindAttribute>>> CollectBindMethods(DiBindValidations bindValidations = DiBindValidations.All)
-            => CollectBindMethods<DiBindAttribute>(bindValidations);
+        public static IReadOnlyDictionary<Type, IReadOnlyList<BindMethod<DiBindAttribute>>> CollectBindMethods(
+            DiBindValidations bindValidations = DiBindValidations.All,
+            IAssemblyFilter? assemblyFilter = null
+            )
+            => CollectBindMethods<DiBindAttribute>(bindValidations, assemblyFilter);
 
         /// <summary>
         /// Collect all possible Bind methods in the current AppDoman. This can be slow on large games, and another solution might be better.
         /// </summary>
         /// <param name="bindValidations">Which Di Bind methods to run against collected methods. Defaults to <see cref="DiBindValidations.All"/>.</param>
+        /// <param name="assemblyFilter">Filter to limit which assemblies to run reflection on. If null, will use <see cref="DefaultAssemblyFilter"/></param>
         /// <returns>All valid DIBind method infos</returns>
         /// <exception cref="BindException">If a single Bind Exception is found during validation</exception>
         /// <exception cref="AggregateException">If multiple Bind Exceptions are found during validation</exception>
         [LibraryEntryPoint]
-        public static IReadOnlyDictionary<Type, IReadOnlyList<BindMethod<T>>> CollectBindMethods<T>(DiBindValidations bindValidations = DiBindValidations.All) where T : DiBindAttribute
+        public static IReadOnlyDictionary<Type, IReadOnlyList<BindMethod<T>>> CollectBindMethods<T>(DiBindValidations bindValidations = DiBindValidations.All, IAssemblyFilter? assemblyFilter = null) where T : DiBindAttribute
         {
+            var filter = assemblyFilter ?? DefaultAssemblyFilter.Instance;
             var assemblies = AppDomain.CurrentDomain.GetAssemblies();
 
             var bindMethods = new Dictionary<Type, IReadOnlyList<BindMethod<T>>>()
@@ -93,8 +108,12 @@ namespace UJect.Init.Reflection
                 { typeof(DiBindAttribute), new List<BindMethod<T>>() } // At least make sure default group is present
             };
             List<BindException>? bindExceptions = null;
+
+            
             foreach (var assembly in assemblies)
             {
+                if (assembly.IsDynamic) continue;
+                if (!filter.ShouldProcessAssembly(assembly)) continue;
                 try
                 {
                     var allTypesInAssembly = assembly.GetTypes();

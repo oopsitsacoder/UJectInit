@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Reflection;
 using UJect.Init.CommonImpl;
+using UJect.Init.Reflection;
 using UJect.Utilities;
 
 namespace UJect.Init.Roslyn
@@ -35,9 +36,9 @@ namespace UJect.Init.Roslyn
         private readonly List<ISourceGeneratedDiBindMethodCollection> cachedMethodCollections = new();
         private readonly Dictionary<Type, IBindMethodCollection> bindMethodCollectionsByAttributeType = new();
 
-        private void TryInit()
+        private void TryInit(bool forceRefreshCache = false, IAssemblyFilter? assemblyFilter = null)
         {
-            if (hasCachedMethods) return;
+            if (!forceRefreshCache && hasCachedMethods) return;
             hasCachedMethods = true;
 
             cachedMethodCollections.Clear();
@@ -45,8 +46,11 @@ namespace UJect.Init.Roslyn
 
             var methodListLookup = new Dictionary<Type, List<Action<DiContainer>>>();
             var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+            var filter = assemblyFilter ?? DefaultAssemblyFilter.Instance;
+            
             foreach (var assembly in assemblies)
             {
+                if (!filter.ShouldProcessAssembly(assembly)) continue;
                 // Try to fetch the Roslyn-generated method collection type from the assembly
                 Type methodCollectionType;
                 try
@@ -97,18 +101,20 @@ namespace UJect.Init.Roslyn
             }
         }
 
-        public void RunBindMethods(DiContainer diContainer)
+        public void RunBindMethods(DiContainer diContainer) => RunBindMethods(diContainer, false, null);
+        
+        public void RunBindMethods(DiContainer diContainer, bool forceRefreshCache, IAssemblyFilter? assemblyFilter)
         {
-            TryInit();
+            TryInit(forceRefreshCache, assemblyFilter);
             foreach (var diBindMethodCollection in cachedMethodCollections)
             {
                 diBindMethodCollection.Run(diContainer);
             }
         }
 
-        public IReadOnlyDictionary<Type, IBindMethodCollection> CollectBindMethodsByAttributeType()
+        public IReadOnlyDictionary<Type, IBindMethodCollection> CollectBindMethodsByAttributeType(bool forceRefreshCache = false, IAssemblyFilter? assemblyFilter = null)
         {
-            TryInit();
+            TryInit(forceRefreshCache, assemblyFilter);
             return bindMethodCollectionsByAttributeType;
         }
 
