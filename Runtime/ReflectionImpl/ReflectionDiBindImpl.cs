@@ -32,10 +32,8 @@ namespace UJect.Init.Reflection
         {
             if (!forceRefreshCache && hasCachedMethods) return;
             hasCachedMethods = true;
-
             bindMethodCollectionsByAttributeType.Clear();
-
-            var bindMethods = CollectBindMethods(DiBindValidations.All, assemblyFilter);
+            var bindMethods = CollectBindMethods<DiBindAttribute>(DiBindValidations.All, assemblyFilter);
             foreach (var kvp in bindMethods)
             {
                 bindMethodCollectionsByAttributeType[kvp.Key] = new BindMethodCollection(kvp.Value);
@@ -73,8 +71,19 @@ namespace UJect.Init.Reflection
             TryInit(forceRefreshCache);
             return bindMethodCollectionsByAttributeType;
         }
-
+        
+        
         /// <summary>
+        /// Validate that a given method info is a viable DI Bind method.
+        /// </summary>
+        /// <param name="method">The method to check</param>
+        /// <param name="bindValidations"></param>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="method"/> is null</exception>
+        /// <exception cref="BindException">Thrown if validation fails</exception>
+        [LibraryEntryPoint]
+        public static void ValidateDiBindMethod(MethodInfo method, DiBindValidations bindValidations) => ValidateDiBindMethodInternal(method, bindValidations);
+
+                /// <summary>
         /// Collect all possible Bind methods in the current AppDoman. This can be slow on large games, and another solution might be better.
         /// </summary>
         /// <param name="bindValidations">Which Di Bind methods to run against collected methods. Defaults to <see cref="DiBindValidations.All"/>.</param>
@@ -82,23 +91,7 @@ namespace UJect.Init.Reflection
         /// <returns>All valid DIBind method infos</returns>
         /// <exception cref="BindException">If a single Bind Exception is found during validation</exception>
         /// <exception cref="AggregateException">If multiple Bind Exceptions are found during validation</exception>
-        [LibraryEntryPoint]
-        public static IReadOnlyDictionary<Type, IReadOnlyList<BindMethod<DiBindAttribute>>> CollectBindMethods(
-            DiBindValidations bindValidations = DiBindValidations.All,
-            IAssemblyFilter? assemblyFilter = null
-            )
-            => CollectBindMethods<DiBindAttribute>(bindValidations, assemblyFilter);
-
-        /// <summary>
-        /// Collect all possible Bind methods in the current AppDoman. This can be slow on large games, and another solution might be better.
-        /// </summary>
-        /// <param name="bindValidations">Which Di Bind methods to run against collected methods. Defaults to <see cref="DiBindValidations.All"/>.</param>
-        /// <param name="assemblyFilter">Filter to limit which assemblies to run reflection on. If null, will use <see cref="DefaultAssemblyFilter"/></param>
-        /// <returns>All valid DIBind method infos</returns>
-        /// <exception cref="BindException">If a single Bind Exception is found during validation</exception>
-        /// <exception cref="AggregateException">If multiple Bind Exceptions are found during validation</exception>
-        [LibraryEntryPoint]
-        public static IReadOnlyDictionary<Type, IReadOnlyList<BindMethod<T>>> CollectBindMethods<T>(DiBindValidations bindValidations = DiBindValidations.All, IAssemblyFilter? assemblyFilter = null) where T : DiBindAttribute
+        private static IReadOnlyDictionary<Type, IReadOnlyList<BindMethod<T>>> CollectBindMethods<T>(DiBindValidations bindValidations = DiBindValidations.All, IAssemblyFilter? assemblyFilter = null) where T : DiBindAttribute
         {
             var filter = assemblyFilter ?? DefaultAssemblyFilter.Instance;
             var assemblies = AppDomain.CurrentDomain.GetAssemblies();
@@ -108,7 +101,6 @@ namespace UJect.Init.Reflection
                 { typeof(DiBindAttribute), new List<BindMethod<T>>() } // At least make sure default group is present
             };
             List<BindException>? bindExceptions = null;
-
             
             foreach (var assembly in assemblies)
             {
@@ -193,69 +185,7 @@ namespace UJect.Init.Reflection
             return bindMethods;
         }
 
-        /// <summary>
-        /// Execute all the method infos in <paramref name="diBindMethodInfos"/>
-        /// </summary>
-        /// <param name="diBindMethodInfos">Methods to execute</param>
-        /// <param name="diContainer">The container to bind to</param>
-        /// <param name="bindValidations">
-        /// Which Di Bind methods to run against each of the <paramref name="diBindMethodInfos"/>. Defaults to <see cref="DiBindValidations.All"/>.
-        /// If you used <see cref="CollectBindMethods"/> with validation, and are passing the results of that here, this can be <see cref="DiBindValidations.DoNothing"/>.
-        /// </param>
-        public static void RunBindMethods(IEnumerable<BindMethod<DiBindAttribute>> diBindMethodInfos, DiContainer diContainer, DiBindValidations bindValidations = DiBindValidations.All)
-            => RunBindMethods<DiBindAttribute>(diBindMethodInfos, diContainer, bindValidations);
-
-        /// <summary>
-        /// Execute all the method infos in <paramref name="diBindMethodInfos"/>
-        /// </summary>
-        /// <param name="diBindMethodInfos">Methods to execute</param>
-        /// <param name="diContainer">The container to bind to</param>
-        /// <param name="bindValidations">
-        /// Which Di Bind methods to run against each of the <paramref name="diBindMethodInfos"/>. Defaults to <see cref="DiBindValidations.All"/>.
-        /// If you used <see cref="CollectBindMethods{T}"/> with validation, and are passing the results of that here, this can be <see cref="DiBindValidations.DoNothing"/>.
-        /// </param>
-        [LibraryEntryPoint]
-        public static void RunBindMethods<T>(IEnumerable<BindMethod<T>> diBindMethodInfos, DiContainer diContainer, DiBindValidations bindValidations = DiBindValidations.All) where T : DiBindAttribute
-        {
-            var diContainerArgArray = new object[] { diContainer };
-            foreach (var bindMethodInfo in diBindMethodInfos)
-            {
-                if (bindValidations != DiBindValidations.DoNothing) ValidateDiBindMethod(bindMethodInfo.MethodInfo, bindValidations);
-                bindMethodInfo.MethodInfo.Invoke(null, diContainerArgArray);
-            }
-        }
-
-        /// <summary>
-        /// Shortcut for calling <see cref="CollectBindMethods"/> and <see cref="RunBindMethods"/> with <see cref="DiBindAttribute"/> in succession.
-        /// </summary>
-        /// <param name="diContainer">Container to bind to</param>
-        public static void CollectAndRunBindMethods(DiContainer diContainer) => CollectAndRunBindMethods<DiBindAttribute>(diContainer);
-
-        /// <summary>
-        /// Shortcut for calling <see cref="CollectBindMethods{T}"/> and <see cref="RunBindMethods{T}"/> in succession.
-        /// </summary>
-        /// <param name="diContainer">Container to bind to</param>
-        [LibraryEntryPoint]
-        public static void CollectAndRunBindMethods<T>(DiContainer diContainer) where T : DiBindAttribute
-        {
-            var bindMethods = CollectBindMethods<T>(DiBindValidations.All);
-            if (bindMethods.TryGetValue(typeof(T), out var groupBindMethods))
-            {
-                // We can skip validations here because we already did them during CollectBindMethods
-                RunBindMethods<T>(groupBindMethods, diContainer, DiBindValidations.DoNothing);
-            }
-        }
-
-        /// <summary>
-        /// Validate that a given method info is a viable DI Bind method.
-        /// </summary>
-        /// <param name="method">The method to check</param>
-        /// <param name="bindValidations"></param>
-        /// <exception cref="ArgumentNullException">Thrown if <paramref name="method"/> is null</exception>
-        /// <exception cref="BindException">Thrown if validation fails</exception>
-        [LibraryEntryPoint]
-        public static void ValidateDiBindMethod(MethodInfo method, DiBindValidations bindValidations) => ValidateDiBindMethodInternal(method, bindValidations);
-
+        
         private static void ValidateDiBindMethodInternal(MethodInfo method, DiBindValidations bindValidations)
         {
             if (method == null)

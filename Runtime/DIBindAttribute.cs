@@ -1,5 +1,6 @@
 ﻿// Copyright (c) 2026 OopsItsACoder
 using System;
+using JetBrains.Annotations;
 using UJect.Utilities;
 
 namespace UJect.Init
@@ -8,6 +9,7 @@ namespace UJect.Init
     /// Attribute denoting a DI Bind method
     /// </summary>
     [LibraryEntryPoint]
+    [MeansImplicitUse]
     [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
     public class DiBindAttribute : PreserveAttribute
     {
